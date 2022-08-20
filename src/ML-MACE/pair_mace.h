@@ -27,6 +27,8 @@ PairStyle(mace,PairMACE);
 
 #include "pair.h"
 
+#include <torch/script.h>
+
 namespace LAMMPS_NS {
 
 class PairMACE : public Pair {
@@ -38,8 +40,13 @@ class PairMACE : public Pair {
   void compute(int, int) override;
   void settings(int, char **) override;
   void coeff(int, char **) override;
+  void init_style() override;
+  double init_one(int, int) override;
+  void allocate();
 
  protected:
+
+  torch::jit::script::Module model;
 
 };
 }    // namespace LAMMPS_NS
