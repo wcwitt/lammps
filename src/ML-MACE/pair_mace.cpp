@@ -164,6 +164,7 @@ void PairMACE::compute(int eflag, int vflag)
   std::cout << contributions << std::endl;
   std::cout << forces << std::endl;
 
+  eng_vdwl = output.at("energy").toTensor()[0].item<double>();
   std::cout << "Goodbye from MACE compute." << std::endl;
 }
 
