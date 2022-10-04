@@ -23,6 +23,7 @@
 #include "neigh_list.h"
 #include "neighbor.h"
 
+#include <algorithm>
 #include <iostream>
 
 using namespace LAMMPS_NS;
@@ -82,34 +83,48 @@ void PairMACE::compute(int eflag, int vflag)
     }
   }
 
+  std::cout << "mace atomic numbers size" << mace_atomic_numbers.size() << std::endl;
+  std::cout << "mace atomic numbers  " << mace_atomic_numbers << std::endl;
+  auto get_mace_type = [this](int lammps_type) {
+    for (int i=0; i<mace_atomic_numbers.size(); ++i) {
+      std::cout << "compare " << i << ":  " << mace_atomic_numbers[i] << "  " << lammps_atomic_numbers[lammps_type-1] << std::endl;
+      if (mace_atomic_numbers[i]==lammps_atomic_numbers[lammps_type-1]) {
+        return i+1;
+      }
+    }
+    // TODO: should throw error
+    return -1000;
+  };
+
   // node_attrs involves atomic numbers
-  int n_node_feats = atom->ntypes;
+  int n_node_feats = mace_atomic_numbers.size();
   auto node_attrs = torch::zeros({n_nodes,n_node_feats}, torch::dtype(torch::kFloat64));
   // TODO: generalize this
   for (int ii = 0; ii < list->inum; ii++) {
-    if (atom->type[ii] == 1) {
-      node_attrs[ii][1] = 1.0;
-    } else if (atom->type[ii]==2) {
-      node_attrs[ii][0] = 1.0;
-    }
+
+    // map lammps type to mace type
+    int mace_type = get_mace_type(atom->type[ii]);
+    std::cout << "mace_type " << mace_type << std::endl;
+    node_attrs[ii][mace_type-1] = 1.0;
   }
 
   // TODO: consider from_blob to avoid copy
   auto batch = torch::zeros({n_nodes}, torch::dtype(torch::kInt64));
   auto energy = torch::empty({1}, torch::dtype(torch::kFloat64));
   auto forces = torch::empty({n_nodes,3}, torch::dtype(torch::kFloat64));
-  auto ptr = torch::empty({2}, torch::dtype(torch::kInt64));  //? size
+  auto ptr = torch::empty({2}, torch::dtype(torch::kInt64));
   auto shifts = torch::zeros({n_edges,3}, torch::dtype(torch::kFloat64)); //zeros instead of empty
+  auto unit_shifts = torch::zeros({n_edges,3}, torch::dtype(torch::kFloat64)); //zeros instead of empty
   auto weight = torch::empty({1}, torch::dtype(torch::kFloat64));
-  ptr[0] = 0;
-  ptr[1] = 3;
+  ptr[0] = 0;  // always zero
+  ptr[1] = 3;  // always n_atoms
   weight[0] = 1.0;
 
   c10::Dict<std::string, torch::Tensor> input;
   input.insert("batch", batch);
   //std::cout << "batch" << std::endl;
   //std::cout << batch << std::endl;
-  //input.insert("cell", cell);
+  input.insert("cell", cell);
   //std::cout << "cell" << std::endl;
   //std::cout << cell << std::endl;
   input.insert("edge_index", edge_index);
@@ -133,6 +148,9 @@ void PairMACE::compute(int eflag, int vflag)
   input.insert("shifts", shifts);
   //std::cout << "shifts" << std::endl;
   //std::cout << shifts << std::endl;
+  input.insert("unit_shifts", unit_shifts);
+  //std::cout << "unit_shifts" << std::endl;
+  //std::cout << unit_shifts << std::endl;
   input.insert("weight", weight);
   //std::cout << "weight" << std::endl;
   //std::cout << weight << std::endl;
@@ -168,6 +186,26 @@ void PairMACE::coeff(int narg, char **arg)
   std::cout << "Loading MACE model from \"" << arg[2] << "\" ...";
   model = torch::jit::load(arg[2]);
   std::cout << " finished." << std::endl;
+
+  std::cout << "attributes" << std::endl;
+  for (const auto& pair : model.named_attributes()) {
+    //std::cout << pair.name << ": " << pair.value << std::endl;
+    std::cout << pair.name << std::endl;
+  }
+
+  r_max = model.attr("r_max").toDouble();
+  std::cout << "  - The r_max is: " << r_max << "." << std::endl;
+  std::cout << "  xxxx atomic numbers " << model.attr("atomic_numbers") << std::endl;
+  mace_atomic_numbers = model.attr("atomic_numbers").toIntVector();
+  std::cout << "  - The model atomic numbers are: " << mace_atomic_numbers << "." << std::endl;
+  //std::cout << "  - The atomic numbers are: " << model.attr("atomic_numbers") << "." << std::endl;
+
+  for (int i=3; i<narg; ++i) {
+    auto iter = std::find(periodic_table.begin(), periodic_table.end(), arg[i]);
+    int index = std::distance(periodic_table.begin(), iter) + 1;
+    lammps_atomic_numbers.push_back(index);
+  }
+  std::cout << "  - The pair_coeff atomic numbers are: " << lammps_atomic_numbers << "." << std::endl;
 
   for (int i=1; i<atom->ntypes+1; i++)
     for (int j=i; j<atom->ntypes+1; j++)

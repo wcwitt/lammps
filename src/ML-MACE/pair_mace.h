@@ -47,6 +47,12 @@ class PairMACE : public Pair {
  protected:
 
   torch::jit::script::Module model;
+  double r_max;
+  std::vector<int64_t> mace_atomic_numbers;
+  std::vector<int64_t> lammps_atomic_numbers;
+  const std::array<std::string,10> periodic_table =
+    {"H", "He",
+     "Li", "Be", "B", "C", "N", "O", "F", "Ne"};
 
 };
 }    // namespace LAMMPS_NS
