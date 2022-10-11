@@ -19,6 +19,7 @@
 #include "pair_mace.h"
 
 #include "atom.h"
+#include "domain.h"
 #include "memory.h"
 #include "neigh_list.h"
 #include "neighbor.h"
@@ -56,9 +57,15 @@ void PairMACE::compute(int eflag, int vflag)
   }
   // ----- cell -----
   auto cell = torch::zeros({3,3}, torch::dtype(torch::kFloat64));
-  for (int ii = 0; ii < 3; ii++) {
-    cell[ii][ii] = 50.0;
-  }
+  cell[0][0] = domain->xprd;
+  cell[0][1] = 0.0;
+  cell[0][2] = 0.0;
+  cell[1][0] = domain->xy;
+  cell[1][1] = domain->yprd;
+  cell[1][2] = 0.0;
+  cell[2][0] = domain->xz;
+  cell[2][1] = domain->yz;
+  cell[2][2] = domain->zprd;
 
   // ----- edge_index -----
   int n_edges = 0;
