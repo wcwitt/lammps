@@ -52,13 +52,17 @@ void PairMACE::compute(int eflag, int vflag)
 
   ev_init(eflag, vflag);
 
+  std::cout << "nlocal:  " << atom->nlocal << std::endl;
+  std::cout << "nghost:  " << atom->nghost << std::endl;
+
   // ----- positions -----
   int n_nodes = atom->nlocal + atom->nghost;
   auto positions = torch::empty({n_nodes,3}, torch::dtype(torch::kFloat64));
-  for (int ii = 0; ii < n_nodes; ii++)
-    for (int jj = 0; jj < 3; jj++)
+  for (int ii = 0; ii < n_nodes; ii++) {
+    for (int jj = 0; jj < 3; jj++) {
       positions[ii][jj] = atom->x[ii][jj];
-
+    }
+  }
   // ----- cell -----
   auto cell = torch::zeros({3,3}, torch::dtype(torch::kFloat64));
   for (int ii = 0; ii < 3; ii++) {
@@ -83,11 +87,8 @@ void PairMACE::compute(int eflag, int vflag)
     }
   }
 
-  std::cout << "mace atomic numbers size" << mace_atomic_numbers.size() << std::endl;
-  std::cout << "mace atomic numbers  " << mace_atomic_numbers << std::endl;
   auto get_mace_type = [this](int lammps_type) {
     for (int i=0; i<mace_atomic_numbers.size(); ++i) {
-      std::cout << "compare " << i << ":  " << mace_atomic_numbers[i] << "  " << lammps_atomic_numbers[lammps_type-1] << std::endl;
       if (mace_atomic_numbers[i]==lammps_atomic_numbers[lammps_type-1]) {
         return i+1;
       }
@@ -117,7 +118,7 @@ void PairMACE::compute(int eflag, int vflag)
   auto unit_shifts = torch::zeros({n_edges,3}, torch::dtype(torch::kFloat64)); //zeros instead of empty
   auto weight = torch::empty({1}, torch::dtype(torch::kFloat64));
   ptr[0] = 0;  // always zero
-  ptr[1] = 3;  // always n_atoms
+  ptr[1] = n_nodes;  // always n_atoms
   weight[0] = 1.0;
 
   c10::Dict<std::string, torch::Tensor> input;
@@ -156,13 +157,17 @@ void PairMACE::compute(int eflag, int vflag)
   //std::cout << weight << std::endl;
 
   std::cout << "evaluating model" << std::endl;
-  auto output = model.forward({input, true}).toGenericDict();
+  // when should stress be printed?
+  auto output = model.forward({input, false, true, false, false}).toGenericDict();
+  std::cout << "energy" << std::endl;
   energy = output.at("energy").toTensor();
-  auto contributions = output.at("contributions").toTensor();
-  forces = output.at("forces").toTensor();
   std::cout << energy << std::endl;
-  std::cout << contributions << std::endl;
+  std::cout << "forces" << std::endl;
+  forces = output.at("forces").toTensor();
   std::cout << forces << std::endl;
+  std::cout << "site energies" << std::endl;
+  auto site_energies = output.at("node_energy").toTensor();
+  std::cout << site_energies << std::endl;
 
   eng_vdwl = output.at("energy").toTensor()[0].item<double>();
   std::cout << "Goodbye from MACE compute." << std::endl;
@@ -188,19 +193,22 @@ void PairMACE::coeff(int narg, char **arg)
   model = torch::jit::load(arg[2]);
   std::cout << " finished." << std::endl;
 
-  std::cout << "attributes" << std::endl;
-  for (const auto& pair : model.named_attributes()) {
-    //std::cout << pair.name << ": " << pair.value << std::endl;
-    std::cout << pair.name << std::endl;
-  }
+//  std::cout << "attributes" << std::endl;
+//  for (const auto& pair : model.named_attributes()) {
+//    //std::cout << pair.name << ": " << pair.value << std::endl;
+//    std::cout << pair.name << std::endl;
+//  }
 
-  r_max = model.attr("r_max").toDouble();
+  r_max = model.attr("r_max").toTensor().item<double>();
   std::cout << "  - The r_max is: " << r_max << "." << std::endl;
-  std::cout << "  xxxx atomic numbers " << model.attr("atomic_numbers") << std::endl;
-  mace_atomic_numbers = model.attr("atomic_numbers").toIntVector();
-  std::cout << "  - The model atomic numbers are: " << mace_atomic_numbers << "." << std::endl;
-  //std::cout << "  - The atomic numbers are: " << model.attr("atomic_numbers") << "." << std::endl;
 
+  // extract atomic numbers from mace model
+  auto a_n = model.attr("atomic_numbers").toTensor();
+  for (int i=0; i<a_n.size(0); ++i) {
+    mace_atomic_numbers.push_back(a_n[i].item<int64_t>());
+  }
+  std::cout << "  - The model atomic numbers are: " << mace_atomic_numbers << "." << std::endl;
+  // extract atomic numbers from pair_coeff
   for (int i=3; i<narg; ++i) {
     auto iter = std::find(periodic_table.begin(), periodic_table.end(), arg[i]);
     int index = std::distance(periodic_table.begin(), iter) + 1;
@@ -226,7 +234,7 @@ void PairMACE::init_style()
 double PairMACE::init_one(int i, int j)
 {
   // TODO: address neighbor list skin distance (2A) differently
-  return model.attr("r_max").toDouble() - 2.0;
+  return model.attr("r_max").toTensor().item<double>() - 2.0;
 }
 
 void PairMACE::allocate()
