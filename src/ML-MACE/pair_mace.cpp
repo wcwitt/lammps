@@ -48,13 +48,17 @@ void PairMACE::compute(int eflag, int vflag)
   ev_init(eflag, vflag);
 
   // ----- positions -----
+  // WARNING: list->gnum not the same as atom->nghost
   int n_nodes = atom->nlocal + atom->nghost;
+  //int n_nodes = list->inum + list->gnum;
   auto positions = torch::empty({n_nodes,3}, torch::dtype(torch::kFloat64));
   for (int ii = 0; ii < n_nodes; ii++) {
-    for (int jj = 0; jj < 3; jj++) {
-      positions[ii][jj] = atom->x[ii][jj];
-    }
+    int i = list->ilist[ii];
+    positions[i][0] = atom->x[i][0];
+    positions[i][1] = atom->x[i][1];
+    positions[i][2] = atom->x[i][2];
   }
+
   // ----- cell -----
   auto cell = torch::zeros({3,3}, torch::dtype(torch::kFloat64));
   cell[0][0] = domain->xprd;
@@ -68,20 +72,53 @@ void PairMACE::compute(int eflag, int vflag)
   cell[2][2] = domain->zprd;
 
   // ----- edge_index -----
+  // count total number of edges
   int n_edges = 0;
-  for (int ii = 0; ii < list->inum; ii++)
-    n_edges += list->numneigh[list->ilist[ii]];
-  auto edge_index = torch::empty({2,n_edges}, torch::dtype(torch::kInt64));
-  int k = 0;
-  for (int ii = 0; ii < list->inum; ii++) {
+  for (int ii = 0; ii < n_nodes; ii++) {
+  //for (int ii = 0; ii < list->inum; ii++) {
     int i = list->ilist[ii];
+    double xtmp = atom->x[i][0];
+    double ytmp = atom->x[i][1];
+    double ztmp = atom->x[i][2];
     int *jlist = list->firstneigh[i];
     int jnum = list->numneigh[i];
     for (int jj = 0; jj < jnum; jj++) {
-      edge_index[0][k] = i;
-      edge_index[1][k] = jlist[jj];
-      //edge_index[1,k] = (jlist[jj] & NEIGHMASK) + 1;
-      k++;
+      int j = jlist[jj];
+      j &= NEIGHMASK; // TODO: what is this?
+      double delx = xtmp - atom->x[j][0];
+      double dely = ytmp - atom->x[j][1];
+      double delz = ztmp - atom->x[j][2];
+      double rsq = delx * delx + dely * dely + delz * delz;
+      // TODO: which is better?
+      //if (rsq < cutsq[itype][jtype]) n_edges += 1;
+      if (rsq < r_max*r_max) n_edges += 1;
+    }
+  }
+
+
+  auto edge_index = torch::empty({2,n_edges}, torch::dtype(torch::kInt64));
+  int k = 0;
+  for (int ii = 0; ii < n_nodes; ii++) {
+  //for (int ii = 0; ii < list->inum; ii++) {
+    int i = list->ilist[ii];
+    double xtmp = atom->x[i][0];
+    double ytmp = atom->x[i][1];
+    double ztmp = atom->x[i][2];
+    int *jlist = list->firstneigh[i];
+    int jnum = list->numneigh[i];
+    for (int jj = 0; jj < jnum; jj++) {
+      int j = jlist[jj];
+      j &= NEIGHMASK; // TODO: what is this?
+      double delx = xtmp - atom->x[j][0];
+      double dely = ytmp - atom->x[j][1];
+      double delz = ztmp - atom->x[j][2];
+      double rsq = delx * delx + dely * dely + delz * delz;
+      if (rsq < r_max*r_max) {
+        edge_index[0][k] = i;
+        edge_index[1][k] = j;
+        //edge_index[1,k] = (jlist[jj] & NEIGHMASK) + 1;
+        k++;
+      }
     }
   }
 
@@ -98,10 +135,10 @@ void PairMACE::compute(int eflag, int vflag)
   // node_attrs involves atomic numbers
   int n_node_feats = mace_atomic_numbers.size();
   auto node_attrs = torch::zeros({n_nodes,n_node_feats}, torch::dtype(torch::kFloat64));
-  // TODO: generalize this
-  for (int ii = 0; ii < list->inum; ii++) {
+  for (int ii = 0; ii < n_nodes; ii++) {
+    int i = list->ilist[ii];
     // map lammps type to mace type
-    node_attrs[ii][mace_type(atom->type[ii])-1] = 1.0;
+    node_attrs[i][mace_type(atom->type[i])-1] = 1.0;
   }
 
   // TODO: consider from_blob to avoid copy
@@ -131,13 +168,21 @@ void PairMACE::compute(int eflag, int vflag)
   input.insert("weight", weight);
   // TODO: when should stress be printed?
   auto output = model.forward({input, false, true, false, false}).toGenericDict();
-  // TODO: remove this unused energy call
-  //energy = output.at("energy").toTensor();
-  auto site_energies = output.at("node_energy").toTensor();
+  auto node_energy = output.at("node_energy").toTensor();
   forces = output.at("forces").toTensor();
 
   // post-process
-  eng_vdwl = output.at("energy").toTensor()[0].item<double>();
+  eng_vdwl = 0.0;
+  for (int ii = 0; ii < n_nodes; ii++) {
+    int i = list->ilist[ii];
+    // TODO: update forces here
+    if (ii < list->inum) {
+      eng_vdwl += node_energy[i].item<double>();
+    if (eflag_atom)
+      eatom[i] = node_energy[i].item<double>();
+    }
+  }
+
 }
 
 /* ---------------------------------------------------------------------- */
@@ -150,6 +195,8 @@ void PairMACE::settings(int narg, char **arg)
 
 void PairMACE::coeff(int narg, char **arg)
 {
+  // TODO: remove print statements from this routine, or have a single proc print
+
   if (!allocated) allocate();
 
   std::cout << "Loading MACE model from \"" << arg[2] << "\" ...";
@@ -158,6 +205,8 @@ void PairMACE::coeff(int narg, char **arg)
 
   r_max = model.attr("r_max").toTensor().item<double>();
   std::cout << "  - The r_max is: " << r_max << "." << std::endl;
+  num_interactions = model.attr("num_interactions").toTensor().item<int64_t>();
+  std::cout << "  - The model has: " << num_interactions << " layers." << std::endl;
 
   // extract atomic numbers from mace model
   auto a_n = model.attr("atomic_numbers").toTensor();
@@ -181,14 +230,12 @@ void PairMACE::coeff(int narg, char **arg)
 
 void PairMACE::init_style()
 {
-  // require full neighbor list
-  neighbor->add_request(this, NeighConst::REQ_FULL);
+  neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
 }
 
 double PairMACE::init_one(int i, int j)
 {
-  // TODO: address neighbor list skin distance (2A) differently
-  return model.attr("r_max").toTensor().item<double>() - 2.0;
+  return num_interactions*model.attr("r_max").toTensor().item<double>();
 }
 
 void PairMACE::allocate()

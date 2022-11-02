@@ -48,6 +48,7 @@ class PairMACE : public Pair {
 
   torch::jit::script::Module model;
   double r_max;
+  int64_t num_interactions;
   std::vector<int64_t> mace_atomic_numbers;
   std::vector<int64_t> lammps_atomic_numbers;
   const std::array<std::string,10> periodic_table =
