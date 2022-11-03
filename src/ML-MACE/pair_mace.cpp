@@ -20,12 +20,15 @@
 
 #include "atom.h"
 #include "domain.h"
+#include "error.h"
+#include "force.h"
 #include "memory.h"
 #include "neigh_list.h"
 #include "neighbor.h"
 
 #include <algorithm>
 #include <iostream>
+#include <stdexcept>
 
 using namespace LAMMPS_NS;
 
@@ -47,10 +50,11 @@ void PairMACE::compute(int eflag, int vflag)
 {
   ev_init(eflag, vflag);
 
+  if (atom->nlocal != list->inum) error->all(FLERR, "ERROR: nlocal != inum.");
+  if (atom->nghost != list->gnum) error->all(FLERR, "ERROR: nghost != gnum.");
+
   // ----- positions -----
-  // WARNING: list->gnum not the same as atom->nghost
-  int n_nodes = atom->nlocal + atom->nghost;
-  //int n_nodes = list->inum + list->gnum;
+  int n_nodes = list->inum + list->gnum;
   auto positions = torch::empty({n_nodes,3}, torch::dtype(torch::kFloat64));
   for (int ii = 0; ii < n_nodes; ii++) {
     int i = list->ilist[ii];
@@ -75,7 +79,6 @@ void PairMACE::compute(int eflag, int vflag)
   // count total number of edges
   int n_edges = 0;
   for (int ii = 0; ii < n_nodes; ii++) {
-  //for (int ii = 0; ii < list->inum; ii++) {
     int i = list->ilist[ii];
     double xtmp = atom->x[i][0];
     double ytmp = atom->x[i][1];
@@ -89,8 +92,6 @@ void PairMACE::compute(int eflag, int vflag)
       double dely = ytmp - atom->x[j][1];
       double delz = ztmp - atom->x[j][2];
       double rsq = delx * delx + dely * dely + delz * delz;
-      // TODO: which is better?
-      //if (rsq < cutsq[itype][jtype]) n_edges += 1;
       if (rsq < r_max*r_max) n_edges += 1;
     }
   }
@@ -99,7 +100,6 @@ void PairMACE::compute(int eflag, int vflag)
   auto edge_index = torch::empty({2,n_edges}, torch::dtype(torch::kInt64));
   int k = 0;
   for (int ii = 0; ii < n_nodes; ii++) {
-  //for (int ii = 0; ii < list->inum; ii++) {
     int i = list->ilist[ii];
     double xtmp = atom->x[i][0];
     double ytmp = atom->x[i][1];
@@ -128,20 +128,18 @@ void PairMACE::compute(int eflag, int vflag)
         return i+1;
       }
     }
-    // TODO: should throw error
-    return -1000;
+    error->all(FLERR, "ERROR: problem converting lammps_type to mace_type.");
+    return -1;
   };
 
-  // node_attrs involves atomic numbers
+  // node_attrs is one-hot encoding for atomic numbers
   int n_node_feats = mace_atomic_numbers.size();
   auto node_attrs = torch::zeros({n_nodes,n_node_feats}, torch::dtype(torch::kFloat64));
   for (int ii = 0; ii < n_nodes; ii++) {
     int i = list->ilist[ii];
-    // map lammps type to mace type
     node_attrs[i][mace_type(atom->type[i])-1] = 1.0;
   }
 
-  // TODO: consider from_blob to avoid copy
   auto batch = torch::zeros({n_nodes}, torch::dtype(torch::kInt64));
   auto energy = torch::empty({1}, torch::dtype(torch::kFloat64));
   auto forces = torch::empty({n_nodes,3}, torch::dtype(torch::kFloat64));
@@ -166,20 +164,21 @@ void PairMACE::compute(int eflag, int vflag)
   input.insert("shifts", shifts);
   input.insert("unit_shifts", unit_shifts);
   input.insert("weight", weight);
-  // TODO: when should stress be printed?
-  auto output = model.forward({input, false, true, false, false}).toGenericDict();
+  auto output = model.forward({input, false, true, vflag, false}).toGenericDict();
   auto node_energy = output.at("node_energy").toTensor();
   forces = output.at("forces").toTensor();
 
-  // post-process
+  // pass the output to LAMMPS variables
   eng_vdwl = 0.0;
   for (int ii = 0; ii < n_nodes; ii++) {
     int i = list->ilist[ii];
-    // TODO: update forces here
     if (ii < list->inum) {
       eng_vdwl += node_energy[i].item<double>();
-    if (eflag_atom)
-      eatom[i] = node_energy[i].item<double>();
+      atom->f[i][0] = forces[i][0].item<double>();
+      atom->f[i][1] = forces[i][1].item<double>();
+      atom->f[i][2] = forces[i][2].item<double>();
+      if (eflag_atom)
+        eatom[i] = node_energy[i].item<double>();
     }
   }
 
@@ -230,11 +229,24 @@ void PairMACE::coeff(int narg, char **arg)
 
 void PairMACE::init_style()
 {
+  if (force->newton_pair == 0) error->all(FLERR, "ERROR: Pair style mace requires newton pair on.");
+
+  /*
+    MACE requires the full neighbor list AND neighbors of ghost atoms
+    it appears that:
+      * without REQ_GHOST
+           list->gnum == 0
+           list->ilist does not include ghost atoms, but the jlists do
+      * with REQ_GHOST
+           list->gnum == atom->nghost
+           list->ilist includes ghost atoms
+  */
   neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
 }
 
 double PairMACE::init_one(int i, int j)
 {
+  // to account for message passing, require cutoff of n_layers * r_max
   return num_interactions*model.attr("r_max").toTensor().item<double>();
 }
 
@@ -248,5 +260,4 @@ void PairMACE::allocate()
       setflag[i][j] = 0;
 
   memory->create(cutsq, atom->ntypes+1, atom->ntypes+1, "pair:cutsq");
-  std::cout << "WARNING: may need to overload init_one, which sets cutsq." << std::endl;
 }
