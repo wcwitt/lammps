@@ -36,6 +36,7 @@ using namespace LAMMPS_NS;
 
 PairMACE::PairMACE(LAMMPS *lmp) : Pair(lmp)
 {
+  no_virial_fdotr_compute = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -164,22 +165,57 @@ void PairMACE::compute(int eflag, int vflag)
   input.insert("shifts", shifts);
   input.insert("unit_shifts", unit_shifts);
   input.insert("weight", weight);
-  auto output = model.forward({input, false, true, vflag, false}).toGenericDict();
-  auto node_energy = output.at("node_energy").toTensor();
-  forces = output.at("forces").toTensor();
+  auto output = model.forward({input, false, true, true, false}).toGenericDict();
 
-  // pass the output to LAMMPS variables
-  eng_vdwl = 0.0;
-  for (int ii = 0; ii < n_nodes; ii++) {
-    int i = list->ilist[ii];
-    if (ii < list->inum) {
+  auto stress = output.at("stress").toTensor();
+
+  // mace energy
+  //   -> sum of site energies of local atoms
+  if (eflag_global) {
+    auto node_energy = output.at("node_energy").toTensor();
+    eng_vdwl = 0.0;
+    for (int ii = 0; ii < list->inum; ii++) {
+      int i = list->ilist[ii];
       eng_vdwl += node_energy[i].item<double>();
-      atom->f[i][0] = forces[i][0].item<double>();
-      atom->f[i][1] = forces[i][1].item<double>();
-      atom->f[i][2] = forces[i][2].item<double>();
-      if (eflag_atom)
-        eatom[i] = node_energy[i].item<double>();
     }
+  }
+
+  // mace forces
+  //   -> derivatives of total mace energy
+  forces = output.at("forces").toTensor();
+  for (int ii = 0; ii < list->inum; ii++) {
+    int i = list->ilist[ii];
+    atom->f[i][0] = forces[i][0].item<double>();
+    atom->f[i][1] = forces[i][1].item<double>();
+    atom->f[i][2] = forces[i][2].item<double>();
+  }
+
+  // mace site energies
+  //   -> local atoms only
+  if (eflag_atom) {
+    auto node_energy = output.at("node_energy").toTensor();
+    for (int ii = 0; ii < list->inum; ii++) {
+      int i = list->ilist[ii];
+      eatom[i] = node_energy[i].item<double>();
+    }
+  }
+
+  // mace virials (local atoms only)
+  //   -> derivatives of sum of site energies of local atoms
+  if (vflag_global) {
+    auto vir = output.at("virials").toTensor();
+    virial[0] = vir[0][0][0].item<double>();
+    virial[1] = vir[0][1][1].item<double>();
+    virial[2] = vir[0][2][2].item<double>();
+    virial[3] = 0.5*(vir[0][2][1].item<double>() + vir[0][1][2].item<double>());
+    virial[4] = 0.5*(vir[0][2][0].item<double>() + vir[0][0][2].item<double>());
+    virial[5] = 0.5*(vir[0][1][0].item<double>() + vir[0][0][1].item<double>());
+  }
+
+  // mace site virials
+  //   -> not available
+  if (vflag_atom) {
+    error->all(FLERR, "ERROR: pair_mace does not support vflag_atom.");
   }
 
 }
