@@ -123,6 +123,8 @@ void PairMACE::compute(int eflag, int vflag)
     }
   }
 
+  //
+
   auto mace_type = [this](int lammps_type) {
     for (int i=0; i<mace_atomic_numbers.size(); ++i) {
       if (mace_atomic_numbers[i]==lammps_atomic_numbers[lammps_type-1]) {
@@ -139,6 +141,13 @@ void PairMACE::compute(int eflag, int vflag)
   for (int ii = 0; ii < n_nodes; ii++) {
     int i = list->ilist[ii];
     node_attrs[i][mace_type(atom->type[i])-1] = 1.0;
+  }
+
+  // ----- mask for ghost -----
+  auto mask = torch::zeros(n_nodes, torch::dtype(torch::kBool));
+  for (int ii = 0; ii < list->inum; ii++) {
+    int i = list->ilist[ii];
+    mask[i] = true;
   }
 
   auto batch = torch::zeros({n_nodes}, torch::dtype(torch::kInt64));
@@ -165,7 +174,7 @@ void PairMACE::compute(int eflag, int vflag)
   input.insert("shifts", shifts);
   input.insert("unit_shifts", unit_shifts);
   input.insert("weight", weight);
-  auto output = model.forward({input, false, true, true, false}).toGenericDict();
+  auto output = model.forward({input, mask, true, true, false}).toGenericDict();
 
   auto stress = output.at("stress").toTensor();
 
