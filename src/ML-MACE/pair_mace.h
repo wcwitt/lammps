@@ -51,7 +51,7 @@ class PairMACE : public Pair {
   int64_t num_interactions;
   std::vector<int64_t> mace_atomic_numbers;
   std::vector<int64_t> lammps_atomic_numbers;
-  const std::array<std::string,10> periodic_table =
+  const std::array<std::string,118> periodic_table =
     { "H", "He",
      "Li", "Be",                                                              "B",  "C",  "N",  "O",  "F", "Ne",
      "Na", "Mg",                                                             "Al", "Si",  "P",  "S", "Cl", "Ar",
