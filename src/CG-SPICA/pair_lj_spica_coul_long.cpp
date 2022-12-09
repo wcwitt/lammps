@@ -1,7 +1,7 @@
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -47,9 +47,9 @@ using namespace LJSPICAParms;
 /* ---------------------------------------------------------------------- */
 
 PairLJSPICACoulLong::PairLJSPICACoulLong(LAMMPS *lmp) :
-    Pair(lmp), lj_type(nullptr), cut_lj(nullptr), cut_ljsq(nullptr),
-    epsilon(nullptr), sigma(nullptr), lj1(nullptr), lj2(nullptr), lj3(nullptr),
-    lj4(nullptr), offset(nullptr), rminsq(nullptr), emin(nullptr)
+    Pair(lmp), cut_lj(nullptr), cut_ljsq(nullptr), epsilon(nullptr), sigma(nullptr), lj1(nullptr),
+    lj2(nullptr), lj3(nullptr), lj4(nullptr), offset(nullptr), lj_type(nullptr), rminsq(nullptr),
+    emin(nullptr)
 {
   ewaldflag = pppmflag = 1;
   respa_enable = 0;

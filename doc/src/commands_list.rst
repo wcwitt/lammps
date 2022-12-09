@@ -13,7 +13,6 @@ Commands
    bond_style
    bond_write
    boundary
-   box
    change_box
    clear
    comm_modify
@@ -43,6 +42,7 @@ Commands
    echo
    fix
    fix_modify
+   fitpod_command
    group
    group2ndx
    hyper
@@ -56,6 +56,7 @@ Commands
    kspace_modify
    kspace_style
    label
+   labelmap
    lattice
    log
    mass
@@ -89,8 +90,7 @@ Commands
    region
    replicate
    rerun
-   reset_atom_ids
-   reset_mol_ids
+   reset_atoms
    reset_timestep
    restart
    run

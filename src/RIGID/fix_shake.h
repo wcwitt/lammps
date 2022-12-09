@@ -1,7 +1,7 @@
 /* -*- c++ -*- ----------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -65,14 +65,14 @@ class FixShake : public Fix {
   double compute_scalar() override;
 
  protected:
-  int vflag_post_force;    // store the vflag of last post_force call
-  int eflag_pre_reverse;   // store the eflag of last pre_reverse call
-  int respa;               // 0 = vel. Verlet, 1 = respa
-  int rattle;              // 0 = SHAKE, 1 = RATTLE
-  double tolerance;        // SHAKE tolerance
-  int max_iter;            // max # of SHAKE iterations
-  int output_every;        // SHAKE stat output every so often
-  bigint next_output;      // timestep for next output
+  int vflag_post_force;     // store the vflag of last post_force call
+  int eflag_pre_reverse;    // store the eflag of last pre_reverse call
+  int respa;                // 0 = vel. Verlet, 1 = respa
+  int rattle;               // 0 = SHAKE, 1 = RATTLE
+  double tolerance;         // SHAKE tolerance
+  int max_iter;             // max # of SHAKE iterations
+  int output_every;         // SHAKE stat output every so often
+  bigint next_output;       // timestep for next output
 
   // settings from input command
   int *bond_flag, *angle_flag;    // bond/angle types to constrain

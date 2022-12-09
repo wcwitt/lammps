@@ -2,7 +2,7 @@
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -844,7 +844,7 @@ void TAD::add_event()
 
   int ievent = n_event_list++;
   fix_event_list[ievent]
-    = dynamic_cast<FixEventTAD *>( modify->add_fix(fmt::format("tad_event_{} all EVENT/TAD", ievent)));
+    = dynamic_cast<FixEventTAD *>(modify->add_fix(fmt::format("tad_event_{} all EVENT/TAD", ievent)));
 
   // store quenched state for new event
 

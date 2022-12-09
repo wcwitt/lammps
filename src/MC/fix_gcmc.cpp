@@ -2,7 +2,7 @@
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -2572,4 +2572,18 @@ void FixGCMC::grow_molecule_arrays(int nmolatoms) {
     molcoords = memory->grow(molcoords,nmaxmolatoms,3,"gcmc:molcoords");
     molq = memory->grow(molq,nmaxmolatoms,"gcmc:molq");
     molimage = memory->grow(molimage,nmaxmolatoms,"gcmc:molimage");
+}
+
+
+/* ----------------------------------------------------------------------
+   extract variable which stores index of exclusion group
+------------------------------------------------------------------------- */
+
+void *FixGCMC::extract(const char *name, int &dim)
+{
+  if (strcmp(name,"exclusion_group") == 0) {
+    dim = 0;
+    return (void *) &exclusion_group;
+  }
+  return nullptr;
 }

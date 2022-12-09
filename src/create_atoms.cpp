@@ -1,7 +1,7 @@
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -976,7 +976,7 @@ int CreateAtoms::add_quasirandom(const double vert[3][3], tagint molid)
   area = 0.5 * MathExtra::len3(temp);
   int nparticles = ceil(mesh_density * area);
   // estimate radius from number of particles and area
-  double rad = sqrt(area/MY_PI/nparticles);
+  double rad = sqrt(area / MY_PI / nparticles);
 
   for (int i = 0; i < nparticles; i++) {
     // Define point in unit square

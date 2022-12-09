@@ -2,7 +2,7 @@
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -136,7 +136,7 @@ void PairReaxFFOMP::init_style()
                    "increased neighbor list skin.");
 
   if (fix_reaxff == nullptr)
-    fix_reaxff = dynamic_cast<FixReaxFF *>( modify->add_fix(fmt::format("{} all REAXFF",fix_id)));
+    fix_reaxff = dynamic_cast<FixReaxFF *>(modify->add_fix(fmt::format("{} all REAXFF",fix_id)));
 
   api->control->nthreads = comm->nthreads;
 }

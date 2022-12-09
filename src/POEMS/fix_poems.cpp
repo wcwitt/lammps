@@ -1,7 +1,7 @@
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -354,7 +354,7 @@ void FixPOEMS::init()
 
   if (earlyflag) {
     bool pflag = false;
-    for (auto ifix : modify->get_fix_list()) {
+    for (auto &ifix : modify->get_fix_list()) {
       if (utils::strmatch(ifix->style, "^poems")) pflag = true;
       if (pflag && (ifix->setmask() & POST_FORCE) && !ifix->rigid_flag)
         if (comm->me == 0)
@@ -365,7 +365,7 @@ void FixPOEMS::init()
 
   // error if npt,nph fix comes before rigid fix
   bool pflag = false;
-  for (auto ifix : modify->get_fix_list()) {
+  for (auto &ifix : modify->get_fix_list()) {
     if (!pflag && utils::strmatch(ifix->style, "np[th]"))
       error->all(FLERR, "POEMS fix must come before NPT/NPH fix");
     if (utils::strmatch(ifix->style, "^poems")) pflag = true;

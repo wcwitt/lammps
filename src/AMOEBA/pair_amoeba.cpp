@@ -2,7 +2,7 @@
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/ Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -133,6 +133,14 @@ PairAmoeba::PairAmoeba(LAMMPS *lmp) : Pair(lmp)
   forcefield = nullptr;
 
   id_pole = id_udalt = id_upalt = nullptr;
+
+  memset(special_hal, 0 , sizeof(special_hal));
+  memset(special_repel, 0 , sizeof(special_repel));
+  memset(special_disp, 0 , sizeof(special_disp));
+  memset(special_mpole, 0 , sizeof(special_mpole));
+  memset(special_polar_pscale, 0 , sizeof(special_polar_pscale));
+  memset(special_polar_piscale, 0 , sizeof(special_polar_piscale));
+  memset(special_polar_wscale, 0 , sizeof(special_polar_wscale));
 
   nualt = 0;
   first_flag = 1;
@@ -2082,6 +2090,28 @@ void *PairAmoeba::extract(const char *str, int &dim)
   if (strcmp(str,"opbend_quartic") == 0) return (void *) &opbend_quartic;
   if (strcmp(str,"opbend_pentic") == 0) return (void *) &opbend_pentic;
   if (strcmp(str,"opbend_sextic") == 0) return (void *) &opbend_sextic;
+
+  return nullptr;
+}
+
+/* ----------------------------------------------------------------------
+   peratom requests from FixPair
+   return ptr to requested data
+   also return ncol = # of quantites per atom
+     0 = per-atom vector
+     1 or more = # of columns in per-atom array
+   return NULL if str is not recognized
+---------------------------------------------------------------------- */
+
+void *PairAmoeba::extract_peratom(const char *str, int &ncol)
+{
+  if (strcmp(str,"uind") == 0) {
+    ncol = 3;
+    return (void *) uind;
+  } else if (strcmp(str,"uinp") == 0) {
+    ncol = 3;
+    return (void *) uinp;
+  }
 
   return nullptr;
 }

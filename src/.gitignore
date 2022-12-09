@@ -57,6 +57,13 @@
 /pair_pace.cpp
 /pair_pace.h
 
+/pair_pod.cpp
+/pair_pod.h
+/fitpod_command.cpp
+/fitpod_command.h
+/mlpod.cpp
+/mlpod.h
+
 /fix_polarize*.cpp
 /fix_polarize*.h
 /*_dielectric.cpp
@@ -267,6 +274,15 @@
 /export_mesont.h
 /pair_mesont_tpm.cpp
 /pair_mesont_tpm.h
+
+/bond_mesocnt.cpp
+/bond_mesocnt.h
+/angle_mesocnt.cpp
+/angle_mesocnt.h
+/pair_mesocnt.cpp
+/pair_mesocnt.h
+/pair_mesocnt_viscous.cpp
+/pair_mesocnt_viscous.h
 
 /atom_vec_bpm_sphere.cpp
 /atom_vec_bpm_sphere.h
@@ -1240,8 +1256,6 @@
 /pair_meam_spline.h
 /pair_meam_sw_spline.cpp
 /pair_meam_sw_spline.h
-/pair_mesocnt.cpp
-/pair_mesocnt.h
 /pair_mm3_switch3_coulgauss_long.cpp
 /pair_mm3_switch3_coulgauss_long.h
 /pair_morse_soft.cpp
@@ -1329,6 +1343,8 @@
 /pair_yukawa_colloid.h
 /pair_wf_cut.cpp
 /pair_wf_cut.h
+/pair_ylz.cpp
+/pair_ylz.h
 /pair_momb.cpp
 /pair_momb.h
 /pppm.cpp
