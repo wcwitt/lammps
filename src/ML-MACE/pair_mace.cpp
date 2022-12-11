@@ -37,7 +37,6 @@ using namespace LAMMPS_NS;
 PairMACE::PairMACE(LAMMPS *lmp) : Pair(lmp)
 {
   no_virial_fdotr_compute = 1;
-  ghostneigh = 1;
 }
 
 /* ---------------------------------------------------------------------- */
