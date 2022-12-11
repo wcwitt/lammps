@@ -89,7 +89,7 @@ void PairMACE::compute(int eflag, int vflag)
     int jnum = list->numneigh[i];
     for (int jj = 0; jj < jnum; jj++) {
       int j = jlist[jj];
-      j &= NEIGHMASK; // TODO: what is this?
+      j &= NEIGHMASK;
       double delx = xtmp - atom->x[j][0];
       double dely = ytmp - atom->x[j][1];
       double delz = ztmp - atom->x[j][2];
@@ -110,7 +110,7 @@ void PairMACE::compute(int eflag, int vflag)
     int jnum = list->numneigh[i];
     for (int jj = 0; jj < jnum; jj++) {
       int j = jlist[jj];
-      j &= NEIGHMASK; // TODO: what is this?
+      j &= NEIGHMASK;
       double delx = xtmp - atom->x[j][0];
       double dely = ytmp - atom->x[j][1];
       double delz = ztmp - atom->x[j][2];
@@ -118,7 +118,6 @@ void PairMACE::compute(int eflag, int vflag)
       if (rsq < r_max*r_max) {
         edge_index[0][k] = i;
         edge_index[1][k] = j;
-        //edge_index[1,k] = (jlist[jj] & NEIGHMASK) + 1;
         k++;
       }
     }
