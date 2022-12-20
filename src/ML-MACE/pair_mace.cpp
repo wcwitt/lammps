@@ -52,12 +52,24 @@ void PairMACE::compute(int eflag, int vflag)
   ev_init(eflag, vflag);
 
   if (atom->nlocal != list->inum) error->all(FLERR, "ERROR: nlocal != inum.");
-  if (atom->nghost != list->gnum) error->all(FLERR, "ERROR: nghost != gnum.");
+  if (domain_decomposition) {
+    if (atom->nghost != list->gnum) error->all(FLERR, "ERROR: nghost != gnum.");
+  }
 
   // ----- positions -----
-  int n_nodes = list->inum + list->gnum;
-  auto positions = torch::empty({n_nodes,3}, torch::dtype(torch::kFloat64));
-  for (int ii = 0; ii < n_nodes; ii++) {
+  int n_nodes;
+  if (domain_decomposition) {
+    n_nodes = atom->nlocal + atom->nghost;
+  } else {
+    // normally, ghost atoms are included in the graph as independent
+    // nodes, as required when the local domain does not have PBC.
+    // however, in no_domain_decomposition mode, ghost atoms are known to
+    // be shifted versions of local atoms.
+    n_nodes = atom->nlocal;
+  }
+  auto positions = torch::empty({n_nodes,3}, torch_float_dtype);
+  #pragma omp parallel for
+  for (int ii=0; ii<n_nodes; ++ii) {
     int i = list->ilist[ii];
     positions[i][0] = atom->x[i][0];
     positions[i][1] = atom->x[i][1];
@@ -65,65 +77,95 @@ void PairMACE::compute(int eflag, int vflag)
   }
 
   // ----- cell -----
-  auto cell = torch::zeros({3,3}, torch::dtype(torch::kFloat64));
-  cell[0][0] = domain->xprd;
+  auto cell = torch::zeros({3,3}, torch_float_dtype);
+  cell[0][0] = domain->h[0];
   cell[0][1] = 0.0;
   cell[0][2] = 0.0;
-  cell[1][0] = domain->xy;
-  cell[1][1] = domain->yprd;
+  cell[1][0] = domain->h[5];
+  cell[1][1] = domain->h[1];
   cell[1][2] = 0.0;
-  cell[2][0] = domain->xz;
-  cell[2][1] = domain->yz;
-  cell[2][2] = domain->zprd;
+  cell[2][0] = domain->h[4];
+  cell[2][1] = domain->h[3];
+  cell[2][2] = domain->h[2];
 
-  // ----- edge_index -----
+  // ----- edge_index and unit_shifts -----
   // count total number of edges
   int n_edges = 0;
-  for (int ii = 0; ii < n_nodes; ii++) {
+  std::vector<int> n_edges_vec(n_nodes, 0);
+  #pragma omp parallel for reduction(+:n_edges)
+  for (int ii=0; ii<n_nodes; ++ii) {
     int i = list->ilist[ii];
     double xtmp = atom->x[i][0];
     double ytmp = atom->x[i][1];
     double ztmp = atom->x[i][2];
     int *jlist = list->firstneigh[i];
     int jnum = list->numneigh[i];
-    for (int jj = 0; jj < jnum; jj++) {
+    for (int jj=0; jj<jnum; ++jj) {
       int j = jlist[jj];
       j &= NEIGHMASK;
       double delx = xtmp - atom->x[j][0];
       double dely = ytmp - atom->x[j][1];
       double delz = ztmp - atom->x[j][2];
       double rsq = delx * delx + dely * dely + delz * delz;
-      if (rsq < r_max*r_max) n_edges += 1;
+      if (rsq < r_max_squared) {
+        n_edges += 1;
+        n_edges_vec[ii] += 1;
+      }
     }
   }
-
-
+  // make first_edge vector to help with parallelizing following loop
+  std::vector<int> first_edge(n_nodes);
+  first_edge[0] = 0;
+  for (int ii=0; ii<n_nodes-1; ++ii) {
+    first_edge[ii+1] = first_edge[ii] + n_edges_vec[ii];
+  }
+  // fill edge_index and unit_shifts tensors
   auto edge_index = torch::empty({2,n_edges}, torch::dtype(torch::kInt64));
-  int k = 0;
-  for (int ii = 0; ii < n_nodes; ii++) {
+  auto unit_shifts = torch::zeros({n_edges,3}, torch_float_dtype);
+  auto shifts = torch::zeros({n_edges,3}, torch_float_dtype);
+  #pragma omp parallel for
+  for (int ii=0; ii<n_nodes; ++ii) {
     int i = list->ilist[ii];
     double xtmp = atom->x[i][0];
     double ytmp = atom->x[i][1];
     double ztmp = atom->x[i][2];
     int *jlist = list->firstneigh[i];
     int jnum = list->numneigh[i];
-    for (int jj = 0; jj < jnum; jj++) {
+    int k = first_edge[ii];
+    for (int jj=0; jj<jnum; ++jj) {
       int j = jlist[jj];
       j &= NEIGHMASK;
       double delx = xtmp - atom->x[j][0];
       double dely = ytmp - atom->x[j][1];
       double delz = ztmp - atom->x[j][2];
       double rsq = delx * delx + dely * dely + delz * delz;
-      if (rsq < r_max*r_max) {
+      if (rsq < r_max_squared) {
         edge_index[0][k] = i;
-        edge_index[1][k] = j;
+        if (domain_decomposition) {
+          edge_index[1][k] = j;
+        } else {
+          int j_local = atom->map(atom->tag[j]);
+          edge_index[1][k] = j_local;
+          double shiftx = atom->x[j][0] - atom->x[j_local][0];
+          double shifty = atom->x[j][1] - atom->x[j_local][1];
+          double shiftz = atom->x[j][2] - atom->x[j_local][2];
+          double shiftxs = std::round(domain->h_inv[0]*shiftx + domain->h_inv[5]*shifty + domain->h_inv[4]*shiftz);
+          double shiftys = std::round(domain->h_inv[1]*shifty + domain->h_inv[3]*shiftz);
+          double shiftzs = std::round(domain->h_inv[2]*shiftz);
+          unit_shifts[k][0] = shiftxs;
+          unit_shifts[k][1] = shiftys;
+          unit_shifts[k][2] = shiftzs;
+          shifts[k][0] = domain->h[0]*shiftxs + domain->h[5]*shiftys + domain->h[4]*shiftzs;
+          shifts[k][1] = domain->h[1]*shiftys + domain->h[3]*shiftzs;
+          shifts[k][2] = domain->h[2]*shiftzs;
+        }
         k++;
       }
     }
   }
 
-  //
-
+  // ----- node_attrs -----
+  // node_attrs is one-hot encoding for atomic numbers
   auto mace_type = [this](int lammps_type) {
     for (int i=0; i<mace_atomic_numbers.size(); ++i) {
       if (mace_atomic_numbers[i]==lammps_atomic_numbers[lammps_type-1]) {
@@ -133,29 +175,27 @@ void PairMACE::compute(int eflag, int vflag)
     error->all(FLERR, "ERROR: problem converting lammps_type to mace_type.");
     return -1;
   };
-
-  // node_attrs is one-hot encoding for atomic numbers
   int n_node_feats = mace_atomic_numbers.size();
-  auto node_attrs = torch::zeros({n_nodes,n_node_feats}, torch::dtype(torch::kFloat64));
-  for (int ii = 0; ii < n_nodes; ii++) {
+  auto node_attrs = torch::zeros({n_nodes,n_node_feats}, torch_float_dtype);
+  #pragma omp parallel for
+  for (int ii=0; ii<n_nodes; ++ii) {
     int i = list->ilist[ii];
     node_attrs[i][mace_type(atom->type[i])-1] = 1.0;
   }
 
   // ----- mask for ghost -----
   auto mask = torch::zeros(n_nodes, torch::dtype(torch::kBool));
-  for (int ii = 0; ii < list->inum; ii++) {
+  #pragma omp parallel for
+  for (int ii=0; ii<atom->nlocal; ++ii) {
     int i = list->ilist[ii];
     mask[i] = true;
   }
 
   auto batch = torch::zeros({n_nodes}, torch::dtype(torch::kInt64));
-  auto energy = torch::empty({1}, torch::dtype(torch::kFloat64));
-  auto forces = torch::empty({n_nodes,3}, torch::dtype(torch::kFloat64));
+  auto energy = torch::empty({1}, torch_float_dtype);
+  auto forces = torch::empty({n_nodes,3}, torch_float_dtype);
   auto ptr = torch::empty({2}, torch::dtype(torch::kInt64));
-  auto shifts = torch::zeros({n_edges,3}, torch::dtype(torch::kFloat64));
-  auto unit_shifts = torch::zeros({n_edges,3}, torch::dtype(torch::kFloat64));
-  auto weight = torch::empty({1}, torch::dtype(torch::kFloat64));
+  auto weight = torch::empty({1}, torch_float_dtype);
   ptr[0] = 0;
   ptr[1] = n_nodes;
   weight[0] = 1.0;
@@ -175,14 +215,13 @@ void PairMACE::compute(int eflag, int vflag)
   input.insert("weight", weight);
   auto output = model.forward({input, mask, true, true, false}).toGenericDict();
 
-  auto stress = output.at("stress").toTensor();
-
   // mace energy
   //   -> sum of site energies of local atoms
   if (eflag_global) {
     auto node_energy = output.at("node_energy").toTensor();
     eng_vdwl = 0.0;
-    for (int ii = 0; ii < list->inum; ii++) {
+    #pragma omp parallel for reduction(+:eng_vdwl)
+    for (int ii=0; ii<list->inum; ++ii) {
       int i = list->ilist[ii];
       eng_vdwl += node_energy[i].item<double>();
     }
@@ -191,7 +230,8 @@ void PairMACE::compute(int eflag, int vflag)
   // mace forces
   //   -> derivatives of total mace energy
   forces = output.at("forces").toTensor();
-  for (int ii = 0; ii < list->inum; ii++) {
+  #pragma omp parallel for
+  for (int ii=0; ii<list->inum; ++ii) {
     int i = list->ilist[ii];
     atom->f[i][0] = forces[i][0].item<double>();
     atom->f[i][1] = forces[i][1].item<double>();
@@ -202,7 +242,8 @@ void PairMACE::compute(int eflag, int vflag)
   //   -> local atoms only
   if (eflag_atom) {
     auto node_energy = output.at("node_energy").toTensor();
-    for (int ii = 0; ii < list->inum; ii++) {
+    #pragma omp parallel for
+    for (int ii=0; ii<list->inum; ++ii) {
       int i = list->ilist[ii];
       eatom[i] = node_energy[i].item<double>();
     }
@@ -232,6 +273,15 @@ void PairMACE::compute(int eflag, int vflag)
 
 void PairMACE::settings(int narg, char **arg)
 {
+  if (narg == 1) {
+    if (strcmp(arg[0], "no_domain_decomposition") == 0) {
+      domain_decomposition = false;
+    } else {
+      error->all(FLERR, "Invalid option for pair_style mace.");
+    }
+  } else if (narg > 1) {
+    error->all(FLERR, "Too many pair_style arguments for pair_style mace.");
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -246,7 +296,22 @@ void PairMACE::coeff(int narg, char **arg)
   model = torch::jit::load(arg[2]);
   std::cout << " finished." << std::endl;
 
+  // extract default dtype from mace model
+  for (auto p: model.named_attributes()) {
+      // this is a somewhat random choice of variable to check. could it be improved?
+      if (p.name == "model.node_embedding.linear.weight") {
+          if (p.value.toTensor().dtype() == caffe2::TypeMeta::Make<float>()) {
+            torch_float_dtype = torch::kFloat32;
+          } else if (p.value.toTensor().dtype() == caffe2::TypeMeta::Make<double>()) {
+            torch_float_dtype = torch::kFloat64;
+          }
+      }
+  }
+  std::cout << "  - The torch_float_dtype is: " << torch_float_dtype << std::endl;
+
+  // extract r_max from mace model
   r_max = model.attr("r_max").toTensor().item<double>();
+  r_max_squared = r_max*r_max;
   std::cout << "  - The r_max is: " << r_max << "." << std::endl;
   num_interactions = model.attr("num_interactions").toTensor().item<int64_t>();
   std::cout << "  - The model has: " << num_interactions << " layers." << std::endl;
@@ -285,13 +350,18 @@ void PairMACE::init_style()
            list->gnum == atom->nghost
            list->ilist includes ghost atoms
   */
-  neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
+  if (domain_decomposition) {
+    neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
+  } else {
+    neighbor->add_request(this, NeighConst::REQ_FULL);
+  }
 }
 
 double PairMACE::init_one(int i, int j)
 {
   // to account for message passing, require cutoff of n_layers * r_max
-  return num_interactions*model.attr("r_max").toTensor().item<double>();
+//  return num_interactions*model.attr("r_max").toTensor().item<double>();
+  return (1+num_interactions)*model.attr("r_max").toTensor().item<double>();
 }
 
 void PairMACE::allocate()

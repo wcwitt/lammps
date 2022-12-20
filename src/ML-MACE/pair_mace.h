@@ -46,8 +46,11 @@ class PairMACE : public Pair {
 
  protected:
 
+  bool domain_decomposition = true;
   torch::jit::script::Module model;
+  torch::ScalarType torch_float_dtype;
   double r_max;
+  double r_max_squared;
   int64_t num_interactions;
   std::vector<int64_t> mace_atomic_numbers;
   std::vector<int64_t> lammps_atomic_numbers;
