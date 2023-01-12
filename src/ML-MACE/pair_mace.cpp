@@ -360,8 +360,7 @@ void PairMACE::init_style()
 double PairMACE::init_one(int i, int j)
 {
   // to account for message passing, require cutoff of n_layers * r_max
-//  return num_interactions*model.attr("r_max").toTensor().item<double>();
-  return (1+num_interactions)*model.attr("r_max").toTensor().item<double>();
+  return num_interactions*model.attr("r_max").toTensor().item<double>();
 }
 
 void PairMACE::allocate()
